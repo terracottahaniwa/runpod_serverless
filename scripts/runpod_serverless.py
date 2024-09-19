@@ -15,10 +15,49 @@ from modules.processing import (
     Processed,
 )
 
+BASEDIR = scripts.basedir()
+
+
 def clear_and_print(text: str):
-    columns, liens = os.get_terminal_size()
+    columns, lines = os.get_terminal_size()
     spaces = columns - len(text)
     print(text + " " * (spaces), end="\r")
+
+
+def is_pil_images(images):
+    return (
+        (True if images else False)
+        and isinstance(images, list)
+        and all(
+            type(image) == Image.Image
+            for image in images
+        )
+    )
+
+
+def pil_imgs_convert_to_b64(images):
+    assert is_pil_images(images)
+    images_base64 = []
+    for image_pil in images:
+        image_bytesio = io.BytesIO()
+        image_pil.save(image_bytesio,
+                        format="PNG")
+        image_bytes = image_bytesio.getvalue()
+        image_base64 = base64.b64encode(
+            image_bytes
+        )
+        images_base64.append(
+            image_base64.decode()
+        )
+    return images_base64
+
+
+def b64_img_convert_to_pil(image_base64):
+    assert isinstance(image_base64, str)
+    image_bytes = base64.b64decode(image_base64)
+    image_bytesio = io.BytesIO(image_bytes)
+    image_pil = Image.open(image_bytesio)
+    return image_pil
 
 
 class Script(scripts.Script):
@@ -26,7 +65,7 @@ class Script(scripts.Script):
         return "RUNPOD Serverless"
 
     def show(self, is_img2img):
-        return False if is_img2img else True
+        return True
 
     def ui(self, is_img2img):
         RUNPOD_API_KEY = gr.Textbox(
@@ -54,24 +93,34 @@ class Script(scripts.Script):
         runpod.api_key = RUNPOD_API_KEY
         endpoint = runpod.Endpoint(RUNPOD_ENDPOINT_ID)
         is_img2img = isinstance(
-            p, StableDiffusionProcessingImg2Img)
+            p,
+            StableDiffusionProcessingImg2Img
+        )
 
-        payload = {
-            "prompt": p.prompt,
-            "negative_prompt": p.negative_prompt,
-            "sampler": p.sampler,
-            "scheduler": p.scheduler,
-            "steps": p.steps,
-            "width": p.width,
-            "height": p.height,
-            "cfg_scale": p.cfg_scale,
-            "n_iter": p.n_iter,
-            "batch_size": p.batch_size,
-        }
+        if is_img2img:
+            filename = "img2img.json"
+        else:
+            filename = "txt2img.json"
+        with open(os.path.join(BASEDIR, filename)) as f:
+            template = json.load(f)
+            payload = {}
+            for key in template.keys():
+                try:
+                    value = getattr(p, key)
+                except AttributeError:
+                    continue
+                if value:
+                    converter = pil_imgs_convert_to_b64
+                    if is_pil_images(value):
+                        value = converter(value)
+                    payload[key] = value
 
         run_request = endpoint.run(
             {
-                "input": payload,
+                "input": {
+                    "is_img2img": is_img2img,
+                    "payload": payload,
+                }
             }
         )
 
@@ -82,16 +131,20 @@ class Script(scripts.Script):
             if status == "COMPLETED":
                 print()
                 break
+            if status == "CANCELLED":
+                raise Exception("CANCELLED")
             if status == "FAILED":
                 raise Exception("FAILED")
             time.sleep(1)
             count += 1
         
         job_status = run_request._fetch_job()
-        print({
-            key: job_status.get(key) for key
-            in ["delayTime", "executionTime"]
-        })
+        print(
+            {
+                key: job_status.get(key) for key
+                in ["delayTime", "executionTime"]
+            }
+        )
 
         output: str = "".join(job_status.get("output"))
         data = json.loads(output)
@@ -99,9 +152,7 @@ class Script(scripts.Script):
         images_pil: list[Image.Image] = []
         infotexts: list[str] = []
         for image_base64 in images_base64:
-            image_bytes = base64.b64decode(image_base64)
-            image_bytesio = io.BytesIO(image_bytes)
-            image = Image.open(image_bytesio)
-            images_pil.append(image)
-            infotexts.append(image.text['parameters'])
+            image_pil = b64_img_convert_to_pil(image_base64)
+            images_pil.append(image_pil)
+            infotexts.append(image_pil.text['parameters'])
         return Processed(p, images_pil, infotexts=infotexts)

@@ -8,6 +8,7 @@ import runpod
 import gradio as gr
 from PIL import Image
 
+import modules.shared as shared
 import modules.scripts as scripts
 from modules.processing import (
     StableDiffusionProcessing,
@@ -131,10 +132,15 @@ class Script(scripts.Script):
             if status == "COMPLETED":
                 print()
                 break
-            if status == "CANCELLED":
-                raise Exception("CANCELLED")
             if status == "FAILED":
                 raise Exception("FAILED")
+            if status == "CANCELLED":
+                raise Exception("CANCELLED")
+            if (
+                shared.state.interrupted
+                or shared.state.stopping_generation
+            ):
+                run_request.cancel()
             time.sleep(1)
             count += 1
         

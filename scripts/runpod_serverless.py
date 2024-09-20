@@ -8,6 +8,7 @@ import runpod
 import gradio as gr
 from PIL import Image
 
+import modules.images as images
 import modules.shared as shared
 import modules.scripts as scripts
 from modules.processing import (
@@ -15,14 +16,11 @@ from modules.processing import (
     StableDiffusionProcessingImg2Img,
     Processed,
 )
+from  modules.infotext_utils import (
+    parse_generation_parameters
+)
 
 BASEDIR = scripts.basedir()
-
-
-def clear_and_print(text: str):
-    columns, lines = os.get_terminal_size()
-    spaces = columns - len(text)
-    print(text + " " * (spaces), end="\r")
 
 
 def is_pil_images(images):
@@ -31,6 +29,17 @@ def is_pil_images(images):
         and isinstance(images, list)
         and all(
             type(image) == Image.Image
+            for image in images
+        )
+    )
+
+
+def is_b64_images(images):
+    return (
+        (True if images else False)
+        and isinstance(images, list)
+        and all(
+            type(image) == str
             for image in images
         )
     )
@@ -53,12 +62,15 @@ def pil_imgs_convert_to_b64(images):
     return images_base64
 
 
-def b64_img_convert_to_pil(image_base64):
-    assert isinstance(image_base64, str)
-    image_bytes = base64.b64decode(image_base64)
-    image_bytesio = io.BytesIO(image_bytes)
-    image_pil = Image.open(image_bytesio)
-    return image_pil
+def b64_imgs_convert_to_pil(images):
+    assert is_b64_images(images)
+    images_pil = []
+    for image_base64 in images:
+        image_bytes = base64.b64decode(image_base64)
+        image_bytesio = io.BytesIO(image_bytes)
+        image_pil = Image.open(image_bytesio)
+        images_pil.append(image_pil)
+    return images_pil
 
 
 class Script(scripts.Script):
@@ -116,21 +128,19 @@ class Script(scripts.Script):
                         value = converter(value)
                     payload[key] = value
 
-        run_request = endpoint.run(
-            {
-                "input": {
-                    "is_img2img": is_img2img,
-                    "payload": payload,
-                }
+        request_input = {
+            "input": {
+                "is_img2img": is_img2img,
+                "payload": payload,
             }
-        )
+        }
+        run_request = endpoint.run(request_input)
 
         count = 0
         while True:
             status = run_request.status()
-            clear_and_print(f"{count}: {status}")
+            shared.state.textinfo = f"{status}: {count}s"
             if status == "COMPLETED":
-                print()
                 break
             if status == "FAILED":
                 raise Exception("FAILED")
@@ -144,21 +154,40 @@ class Script(scripts.Script):
             time.sleep(1)
             count += 1
         
+        shared.state.textinfo = f"fetch job"
         job_status = run_request._fetch_job()
-        print(
-            {
-                key: job_status.get(key) for key
-                in ["delayTime", "executionTime"]
-            }
-        )
+        job_times = {
+            key: job_status.get(key) for key
+            in ["delayTime", "executionTime"]
+        }
+        delay_time, execution_time = job_times.values()
+        print(job_times)
 
         output: str = "".join(job_status.get("output"))
         data = json.loads(output)
-        images_base64: list[str] = data.get('images', [])
-        images_pil: list[Image.Image] = []
-        infotexts: list[str] = []
-        for image_base64 in images_base64:
-            image_pil = b64_img_convert_to_pil(image_base64)
-            images_pil.append(image_pil)
-            infotexts.append(image_pil.text['parameters'])
+        images_base64 = data.get("images", [])
+        images_pil = b64_imgs_convert_to_pil(images_base64)
+        infotexts = []
+        for i, image_pil in enumerate(images_pil):
+            shared.state.textinfo = f"save image: {i}"
+            infotext = image_pil.text.get("parameters")
+            infotexts.append(infotext)
+            info = parse_generation_parameters(infotext)
+            if p.save_samples():
+                images.save_image(
+                    image=image_pil,
+                    path=p.outpath_samples,
+                    basename="",
+                    seed=info.get("Seed", -1),
+                    prompt=info.get("Prompt", ""),
+                    extension=shared.opts.samples_format,
+                    info=infotext,
+                    p=p
+                )
+        infotexts = [
+            infotext
+            + f", delayTime: {delay_time / 1000:.2f}s, "
+            + f"executionTime: {execution_time / 1000:.2f}s"
+            for infotext in infotexts
+        ]
         return Processed(p, images_pil, infotexts=infotexts)

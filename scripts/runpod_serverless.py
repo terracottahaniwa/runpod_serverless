@@ -25,8 +25,8 @@ BASEDIR = scripts.basedir()
 
 def is_pil_images(images):
     return (
-        (True if images else False)
-        and isinstance(images, list)
+        isinstance(images, list)
+        and len(images) != 0
         and all(
             type(image) == Image.Image
             for image in images
@@ -36,8 +36,8 @@ def is_pil_images(images):
 
 def is_b64_images(images):
     return (
-        (True if images else False)
-        and isinstance(images, list)
+        isinstance(images, list)
+        and len(images) != 0
         and all(
             type(image) == str
             for image in images
@@ -116,18 +116,30 @@ class Script(scripts.Script):
             filename = "img2img.json"
         else:
             filename = "txt2img.json"
+
         with open(os.path.join(BASEDIR, filename)) as f:
             template = json.load(f)
             payload = {}
             for key in template.keys():
+                rename_rules = {"mask": "image_mask"}
+                rename = lambda x: rename_rules.get(x, x)
+                key = rename(key)
                 try:
                     value = getattr(p, key)
                 except AttributeError:
                     continue
-                if value:
-                    converter = pil_imgs_convert_to_b64
-                    if is_pil_images(value):
-                        value = converter(value)
+
+                if value is None:
+                    continue
+                elif key == "init_images":
+                    convert = pil_imgs_convert_to_b64
+                    payload[key] = convert(value)
+                    continue
+                elif key == "image_mask":
+                    convert = pil_imgs_convert_to_b64
+                    payload["mask"] = convert([value])[0]
+                    continue
+                else:
                     payload[key] = value
 
         request_input = {
@@ -136,6 +148,7 @@ class Script(scripts.Script):
                 "payload": payload,
             }
         }
+
         run_request = endpoint.run(request_input)
 
         count = 0
@@ -175,7 +188,8 @@ class Script(scripts.Script):
             infotext = image_pil.text.get("parameters")
             infotexts.append(infotext)
             info = parse_generation_parameters(infotext)
-            if p.save_samples():
+            is_save_sample = p.save_samples()
+            if is_save_sample:
                 modules.images.save_image(
                     image=image_pil,
                     path=p.outpath_samples,

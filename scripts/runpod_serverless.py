@@ -8,7 +8,7 @@ import runpod
 import gradio as gr
 from PIL import Image
 
-import modules.images as images
+import modules.images
 import modules.shared as shared
 import modules.scripts as scripts
 from modules.processing import (
@@ -176,7 +176,7 @@ class Script(scripts.Script):
             infotexts.append(infotext)
             info = parse_generation_parameters(infotext)
             if p.save_samples():
-                images.save_image(
+                modules.images.save_image(
                     image=image_pil,
                     path=p.outpath_samples,
                     basename="",

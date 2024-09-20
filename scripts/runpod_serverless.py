@@ -50,8 +50,10 @@ def pil_imgs_convert_to_b64(images):
     images_base64 = []
     for image_pil in images:
         image_bytesio = io.BytesIO()
-        image_pil.save(image_bytesio,
-                        format="PNG")
+        image_pil.save(
+            image_bytesio,
+            format="PNG"
+        )
         image_bytes = image_bytesio.getvalue()
         image_base64 = base64.b64encode(
             image_bytes

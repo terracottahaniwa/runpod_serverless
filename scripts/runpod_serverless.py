@@ -117,13 +117,14 @@ class Script(scripts.Script):
         else:
             filename = "txt2img.json"
 
+        # create payload from template
         with open(os.path.join(BASEDIR, filename)) as f:
             template = json.load(f)
             payload = {}
             for key in template.keys():
-                rename_rules = {"mask": "image_mask"}
-                rename = lambda x: rename_rules.get(x, x)
-                key = rename(key)
+                # p has no attr "mask" but "image_mask"
+                if key == "mask":
+                    key = "image_mask"
                 try:
                     value = getattr(p, key)
                 except AttributeError:
@@ -136,6 +137,7 @@ class Script(scripts.Script):
                     payload[key] = convert(value)
                     continue
                 elif key == "image_mask":
+                    # payload need "mask" not "image_mask"
                     convert = pil_imgs_convert_to_b64
                     payload["mask"] = convert([value])[0]
                     continue

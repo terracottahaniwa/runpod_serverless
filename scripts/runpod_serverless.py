@@ -105,6 +105,9 @@ class Script(scripts.Script):
             RUNPOD_ENDPOINT_ID,
         ):
 
+        if p.scripts:
+            p.scripts.before_process(p)
+
         runpod.api_key = RUNPOD_API_KEY
         endpoint = runpod.Endpoint(RUNPOD_ENDPOINT_ID)
         is_img2img = isinstance(
@@ -150,7 +153,6 @@ class Script(scripts.Script):
                 "payload": payload,
             }
         }
-
         run_request = endpoint.run(request_input)
 
         count = 0
@@ -195,9 +197,9 @@ class Script(scripts.Script):
                 modules.images.save_image(
                     image=image_pil,
                     path=p.outpath_samples,
-                    basename="",
-                    seed=info.get("Seed", -1),
-                    prompt=info.get("Prompt", ""),
+                    basename="runpod",
+                    seed=info.get("Seed"),
+                    prompt=info.get("Prompt"),
                     extension=shared.opts.samples_format,
                     info=infotext,
                     p=p

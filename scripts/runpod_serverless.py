@@ -144,6 +144,9 @@ class Script(scripts.Script):
                     convert = pil_imgs_convert_to_b64
                     payload["mask"] = convert([value])[0]
                     continue
+                elif key == "script_args":
+                    # not support yet
+                    continue
                 else:
                     payload[key] = value
 

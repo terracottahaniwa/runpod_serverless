@@ -93,9 +93,16 @@ class Script(scripts.Script):
             label="RUNPOD_ENDPOINT_ID",
             value=os.getenv("RUNPOD_ENDPOINT_ID"),
         )
+        WORKERS = gr.Slider(
+            minimum=1,
+            maximum=3,
+            step=1,
+            label="WORKERS",
+        )
         return [
             RUNPOD_API_KEY,
             RUNPOD_ENDPOINT_ID,
+            WORKERS,
         ]
 
     def run(
@@ -103,6 +110,7 @@ class Script(scripts.Script):
             p: StableDiffusionProcessing,
             RUNPOD_API_KEY,
             RUNPOD_ENDPOINT_ID,
+            WORKERS,
         ):
 
         if p.scripts:
@@ -128,6 +136,7 @@ class Script(scripts.Script):
                 # p has no attr "mask" but "image_mask"
                 if key == "mask":
                     key = "image_mask"
+
                 try:
                     value = getattr(p, key)
                 except AttributeError:
@@ -150,67 +159,79 @@ class Script(scripts.Script):
                 else:
                     payload[key] = value
 
-        request_input = {
-            "input": {
-                "is_img2img": is_img2img,
-                "payload": payload,
+        run_requests = []
+        for i in range(WORKERS):
+            request_input = {
+                "input": {
+                    "is_img2img": is_img2img,
+                    "payload": payload,
+                }
             }
-        }
-        run_request = endpoint.run(request_input)
+            run_request = endpoint.run(request_input)
+            run_requests.append(run_request)
 
         count = 0
-        while True:
-            status = run_request.status()
-            shared.state.textinfo = f"{status}: {count}s"
-            if status == "COMPLETED":
-                break
-            if status == "FAILED":
-                raise Exception("FAILED")
-            if status == "CANCELLED":
-                raise Exception("CANCELLED")
-            if (
-                shared.state.interrupted
-                or shared.state.stopping_generation
-            ):
-                run_request.cancel()
-            time.sleep(1)
-            count += 1
-        
-        shared.state.textinfo = f"fetch job"
-        job_status = run_request._fetch_job()
-        job_times = {
-            key: job_status.get(key) for key
-            in ["delayTime", "executionTime"]
-        }
-        delay_time, execution_time = job_times.values()
-        print(job_times)
+        count_up = 1
+        for i, run_request in enumerate(run_requests):
+            while True:
+                status = run_request.status()
+                shared.state.textinfo = f"worker{i}: {count}s {status}"
+                if status == "COMPLETED":
+                    break
+                if status == "FAILED":
+                    raise Exception("FAILED")
+                if status == "CANCELLED":
+                    raise Exception("CANCELLED")
+                if (
+                    shared.state.interrupted
+                    or shared.state.stopping_generation
+                ):
+                    for run_request in run_requests:
+                        run_request.cancel()
+                time.sleep(count_up)
+                count += count_up   
 
-        output: str = "".join(job_status.get("output"))
-        data = json.loads(output)
-        images_base64 = data.get("images", [])
-        images_pil = b64_imgs_convert_to_pil(images_base64)
-        infotexts = []
-        for i, image_pil in enumerate(images_pil):
-            shared.state.textinfo = f"save image: {i}"
-            infotext = image_pil.text.get("parameters")
-            infotexts.append(infotext)
-            info = parse_generation_parameters(infotext)
-            is_save_sample = p.save_samples()
-            if is_save_sample:
-                modules.images.save_image(
-                    image=image_pil,
-                    path=p.outpath_samples,
-                    basename="runpod",
-                    seed=info.get("Seed"),
-                    prompt=info.get("Prompt"),
-                    extension=shared.opts.samples_format,
-                    info=infotext,
-                    p=p
-                )
-        infotexts = [
-            infotext
-            + f", delayTime: {delay_time / 1000:.2f}s, "
-            + f"executionTime: {execution_time / 1000:.2f}s"
-            for infotext in infotexts
-        ]
-        return Processed(p, images_pil, infotexts=infotexts)
+        all_img = []
+        all_txt = []
+        for j, run_request in enumerate(run_requests):
+            shared.state.textinfo = f"fetch job{j}"
+            job_status = run_request._fetch_job()
+            job_times = {
+                key: job_status.get(key) for key
+                in ["delayTime", "executionTime"]
+            }
+            delay_time, execution_time = job_times.values()
+            print(f"worker{j}: {job_times}")
+
+            output: str = "".join(job_status.get("output"))
+            data = json.loads(output)
+            images_base64 = data.get("images", [])
+            images_pil = b64_imgs_convert_to_pil(images_base64)
+            infotexts = []
+            for i, image_pil in enumerate(images_pil):
+                shared.state.textinfo = f"save image: {i}"
+                infotext = image_pil.text.get("parameters")
+                infotexts.append(infotext)
+                info = parse_generation_parameters(infotext)
+                is_save_sample = p.save_samples()
+                if is_save_sample:
+                    modules.images.save_image(
+                        image=image_pil,
+                        path=p.outpath_samples,
+                        basename="runpod",
+                        seed=info.get("Seed"),
+                        prompt=info.get("Prompt"),
+                        extension=shared.opts.samples_format,
+                        info=infotext,
+                        p=p
+                    )
+            infotexts = [
+                infotext
+                + f", delayTime: {delay_time / 1000:.2f}s, "
+                + f"executionTime: {execution_time / 1000:.2f}s"
+                for infotext in infotexts
+            ]
+            all_img += images_pil
+            all_txt += infotexts
+        
+        return Processed(p, all_img, infotexts=all_txt)

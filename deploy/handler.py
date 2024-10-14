@@ -17,10 +17,9 @@ async def wait_for_sdapi_ready():
 
 
 async def handler(job):
-    await wait_for_sdapi_ready()
     job_input = job["input"]
     async with httpx.AsyncClient() as client:
-        client.timeout = httpx.Timeout(None)
+        client.timeout = httpx.Timeout(600)
         is_img2img = job_input["is_img2img"]
         if is_img2img:
             endpoint = "http://localhost:7861/sdapi/v1/img2img"
@@ -35,6 +34,7 @@ async def handler(job):
             yield data[i:i + chunk_size]
 
 
+asyncio.run(wait_for_sdapi_ready())
 runpod.serverless.start(
     {
         "handler": handler,

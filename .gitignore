@@ -1,3 +1,4 @@
 venv/
-deploy/models/
+deploy/models/Lora/*.safetensors
+deploy/models/Stable-diffusion/*.safetensors
 scripts/__pycache__/

@@ -93,16 +93,16 @@ class Script(scripts.Script):
             label="RUNPOD_ENDPOINT_ID",
             value=os.getenv("RUNPOD_ENDPOINT_ID"),
         )
-        WORKERS = gr.Slider(
+        WORKER = gr.Slider(
             minimum=1,
-            maximum=3,
+            maximum=5,
             step=1,
-            label="WORKERS",
+            label="WORKER",
         )
         return [
             RUNPOD_API_KEY,
             RUNPOD_ENDPOINT_ID,
-            WORKERS,
+            WORKER,
         ]
 
     def run(
@@ -110,7 +110,7 @@ class Script(scripts.Script):
             p: StableDiffusionProcessing,
             RUNPOD_API_KEY,
             RUNPOD_ENDPOINT_ID,
-            WORKERS,
+            WORKER,
         ):
 
         if p.scripts:
@@ -160,7 +160,7 @@ class Script(scripts.Script):
                     payload[key] = value
 
         run_requests = []
-        for i in range(WORKERS):
+        for i in range(WORKER):
             request_input = {
                 "input": {
                     "is_img2img": is_img2img,
@@ -179,6 +179,8 @@ class Script(scripts.Script):
                 if status == "COMPLETED":
                     break
                 if status == "FAILED":
+                    for run_request in run_requests:
+                        run_request.cancel()
                     raise Exception("FAILED")
                 if status == "CANCELLED":
                     raise Exception("CANCELLED")

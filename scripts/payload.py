@@ -44,7 +44,7 @@ def create_payload(
                 continue
             if key == "image_mask":
                 # payload need "mask" not "image_mask"
-                payload["mask"] = [to_base64(value)]
+                payload["mask"] = to_base64(value)
                 continue
             if key == "script_args":
                 # not support yet

@@ -3,6 +3,7 @@ import io
 import json
 import os
 import time
+from threading import Thread
 
 import runpod
 import gradio as gr
@@ -75,6 +76,53 @@ def b64_imgs_convert_to_pil(images):
     return images_pil
 
 
+class Timer():
+    def __init__(self, title="", status=""):
+        self.title = title
+        self.status = status
+        self.is_running = False
+        self.counter = 0
+        self.thread = Thread(
+            target=self.timer
+        )
+
+    def timer(self):
+        DELAY = 1
+        while self.is_running:
+            shared.state.textinfo = (
+                f"{self.title}: "
+                f"{self.counter}s "
+                f"{self.status}"
+            )
+            time.sleep(DELAY)
+            self.counter += DELAY
+
+    def __enter__(self):
+        self.is_running = True
+        self.thread.start()
+        return self
+
+    def __exit__(self, ex_type, ex_value, trace):
+        self.is_running = False
+        self.thread.join()
+
+
+class ReturnableThread(Thread):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._return = None
+
+    def run(self):
+        self._return = self._target(
+            *self._args,
+            **self._kwargs
+        )
+
+    def join(self):
+        super().join()
+        return self._return
+
+
 class Script(scripts.Script):
     def title(self):
         return "RUNPOD Serverless"
@@ -93,16 +141,16 @@ class Script(scripts.Script):
             label="RUNPOD_ENDPOINT_ID",
             value=os.getenv("RUNPOD_ENDPOINT_ID"),
         )
-        WORKER = gr.Slider(
+        WORKERS = gr.Slider(
             minimum=1,
             maximum=5,
             step=1,
-            label="WORKER",
+            label="WORKERS",
         )
         return [
             RUNPOD_API_KEY,
             RUNPOD_ENDPOINT_ID,
-            WORKER,
+            WORKERS,
         ]
 
     def run(
@@ -110,7 +158,7 @@ class Script(scripts.Script):
             p: StableDiffusionProcessing,
             RUNPOD_API_KEY,
             RUNPOD_ENDPOINT_ID,
-            WORKER,
+            WORKERS,
         ):
 
         if p.scripts:
@@ -124,43 +172,48 @@ class Script(scripts.Script):
         )
 
         if is_img2img:
-            filename = "img2img.json"
+            template = "img2img.json"
         else:
-            filename = "txt2img.json"
+            template = "txt2img.json"
 
         # create payload from template
-        with open(os.path.join(BASEDIR, filename)) as f:
+        path = os.path.join(BASEDIR, template)
+        with open(path) as f:
             template = json.load(f)
             payload = {}
+
             for key in template.keys():
+                convert = pil_imgs_convert_to_b64
+
                 # p has no attr "mask" but "image_mask"
                 if key == "mask":
                     key = "image_mask"
 
                 try:
                     value = getattr(p, key)
-                except AttributeError:
-                    continue
-
-                if value is None:
-                    continue
-                elif key == "init_images":
-                    convert = pil_imgs_convert_to_b64
-                    payload[key] = convert(value)
-                    continue
-                elif key == "image_mask":
-                    # payload need "mask" not "image_mask"
-                    convert = pil_imgs_convert_to_b64
-                    payload["mask"] = convert([value])[0]
-                    continue
-                elif key == "script_args":
-                    # not support yet
-                    continue
-                else:
+                    if key == "init_images":
+                        # init_images must be base64 encorded
+                        payload[key] = convert(value)
+                        continue
+                    if key == "image_mask":
+                        # payload need "mask" not "image_mask"
+                        payload["mask"] = convert([value])[0]
+                        continue
+                    if key == "script_args":
+                        # not support yet
+                        continue
+                    if value is None:
+                        # no need to payloading
+                        continue
                     payload[key] = value
 
+                except AttributeError:
+                    # no attr in p with same name as key
+                    continue
+
+        # run request
         run_requests = []
-        for i in range(WORKER):
+        for i in range(WORKERS):
             request_input = {
                 "input": {
                     "is_img2img": is_img2img,
@@ -169,13 +222,22 @@ class Script(scripts.Script):
             }
             run_request = endpoint.run(request_input)
             run_requests.append(run_request)
+            print(f"queued {run_request.job_id}")
 
-        count = 0
-        count_up = 1
-        for i, run_request in enumerate(run_requests):
+        def watch(i, run_request, timer):
+            DELAY = 1
             while True:
                 status = run_request.status()
-                shared.state.textinfo = f"worker{i}: {count}s {status}"
+                timer.title = f"worker{i}"
+                timer.status = status
+
+                if (
+                    shared.state.interrupted or
+                    shared.state.stopping_generation
+                ):
+                    for run_request in run_requests:
+                        run_request.cancel()
+
                 if status == "COMPLETED":
                     break
                 if status == "FAILED":
@@ -184,36 +246,22 @@ class Script(scripts.Script):
                     raise Exception("FAILED")
                 if status == "CANCELLED":
                     raise Exception("CANCELLED")
-                if (
-                    shared.state.interrupted
-                    or shared.state.stopping_generation
-                ):
-                    for run_request in run_requests:
-                        run_request.cancel()
-                time.sleep(count_up)
-                count += count_up   
 
-        all_img = []
-        all_txt = []
-        for j, run_request in enumerate(run_requests):
-            shared.state.textinfo = f"fetch job{j}"
+                time.sleep(DELAY)
+
+        def fetch(i, run_request, timer):
             job_status = run_request._fetch_job()
-            job_times = {
-                key: job_status.get(key) for key
-                in ["delayTime", "executionTime"]
-            }
-            delay_time, execution_time = job_times.values()
-            print(f"worker{j}: {job_times}")
-
+            timer.title = f"fetch{i} {run_request.job_id}"
             output: str = "".join(job_status.get("output"))
             data = json.loads(output)
             images_base64 = data.get("images", [])
             images_pil = b64_imgs_convert_to_pil(images_base64)
+
             infotexts = []
             for i, image_pil in enumerate(images_pil):
-                shared.state.textinfo = f"save image: {i}"
                 infotext = image_pil.text.get("parameters")
                 infotexts.append(infotext)
+
                 info = parse_generation_parameters(infotext)
                 is_save_sample = p.save_samples()
                 if is_save_sample:
@@ -227,13 +275,56 @@ class Script(scripts.Script):
                         info=infotext,
                         p=p
                     )
+                    print(f"saved {i}@{run_request.job_id}")
+
+            job_times = {
+                key: job_status.get(key) for key
+                in ["delayTime", "executionTime"]
+            }
+            delay_time, execution_time = job_times.values()
             infotexts = [
                 infotext
                 + f", delayTime: {delay_time / 1000:.2f}s, "
                 + f"executionTime: {execution_time / 1000:.2f}s"
                 for infotext in infotexts
             ]
+
+            return images_pil, infotexts
+
+        with Timer("watch workers") as timer:
+            watch_threads = [
+                Thread(
+                    target=watch,
+                    args=(i, run_request, timer)
+                )
+                for i, run_request
+                in enumerate(run_requests)
+            ]
+            for watch_thread in watch_threads:
+                watch_thread.start()
+            for watch_thread in watch_threads:
+                watch_thread.join()
+
+        with Timer("fetch results") as timer:
+            fetch_threads = [
+                ReturnableThread(
+                    target=fetch,
+                    args=(i, run_request, timer)
+                )
+                for i, run_request
+                in enumerate(run_requests)
+            ]
+            for fetch_thread in fetch_threads:
+                fetch_thread.start()
+            results = [
+                fetch_thread.join()
+                for fetch_thread in fetch_threads
+            ]
+
+        all_img = []
+        all_txt = []
+        for images_pil, infotexts in results:
             all_img += images_pil
             all_txt += infotexts
-        
+
         return Processed(p, all_img, infotexts=all_txt)

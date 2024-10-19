@@ -83,7 +83,7 @@ class Script(scripts.Script):
         payload = create_payload(p, template)
         request_input = create_request_input(is_img2img, payload)
 
-        now = datetime.now().strftime(r"%d/%m/%y %H:%M:%S")
+        now = datetime.now().strftime(r"%y/%m/%d %H:%M:%S")
         print(f"\nRunpod serverless run: {now}")
 
         run_requests = []
@@ -92,7 +92,7 @@ class Script(scripts.Script):
             run_requests.append(run_request)
             print(f"worker{i}: {run_request.job_id}")
 
-        def display_info(timer):
+        def update_progress_bar(timer):
             shared.state.textinfo = (
                 f"{timer.title}: "
                 f"{timer.counter}s "
@@ -102,7 +102,7 @@ class Script(scripts.Script):
         with CounterTimer() as timer:
             timer.title = "watch status"
             timer.status = ""
-            timer.hook = display_info
+            timer.hook = update_progress_bar
             watch_threads = [
                 Thread(
                     target=watch_status,
@@ -118,7 +118,7 @@ class Script(scripts.Script):
         with CounterTimer() as timer:
             timer.title  = "fetch results"
             timer.status = ""
-            timer.hook = display_info
+            timer.hook = update_progress_bar
             fetch_threads = [
                 ReturnableThread(
                     target=fetch_result,

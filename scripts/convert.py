@@ -19,7 +19,8 @@ def to_base64(image):
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     content = buffer.getvalue()
-    return b64encode(content).decode("utf-8")
+    encoded_bytes = b64encode(content)
+    return encoded_bytes.decode("utf-8")
 
 
 def to_image(base64_):

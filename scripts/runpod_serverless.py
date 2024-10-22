@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-from threading import Thread
 
 import runpod
 import gradio as gr
@@ -104,7 +103,7 @@ class Script(scripts.Script):
             timer.status = ""
             timer.hook = update_progress_bar
             watch_threads = [
-                Thread(
+                ReturnableThread(
                     target=watch_status,
                     args=(i, run_requests, timer)
                 )
@@ -112,8 +111,17 @@ class Script(scripts.Script):
             ]
             for watch_thread in watch_threads:
                 watch_thread.start()
-            for watch_thread in watch_threads:
+            results = [
                 watch_thread.join()
+                for watch_thread in watch_threads
+            ]
+        
+        assert all(
+            [
+                result == "COMPLETED"
+                for result in results
+            ]
+        ), results
 
         with CounterTimer() as timer:
             timer.title  = "fetch results"

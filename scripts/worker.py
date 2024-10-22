@@ -19,21 +19,21 @@ def watch_status(i, run_requests, timer):
     DELAY = 1
     run_request= run_requests[i]
     while True:
+        if any((shared.state.interrupted, 
+                shared.state.stopping_generation)):
+            cancel_all(run_requests)
+    
         status = run_request.status()
         timer.title = f"worker{i}"
         timer.status = status
 
-        if any((shared.state.interrupted, 
-                shared.state.stopping_generation)):
-            cancel_all(run_requests)
-
         if status == "FAILED":
             cancel_all(run_requests)
-            raise Exception("FAILED")
+            return "FAILED"
         if status == "CANCELLED":
-            raise Exception("CANCELLED")
+            return "CANCELLED"
         if status == "COMPLETED":
-            break
+            return "COMPLETED"
 
         time.sleep(DELAY)
 
@@ -85,7 +85,7 @@ def fetch_result(i, p, run_requests, timer):
                 p=p
             )
             print(
-                f"saved: image{j} @ worker{i}"
+                f"saved: image{j} @ worker{i} "
                 f"<{run_request.job_id}>"
             )
 

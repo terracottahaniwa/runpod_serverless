@@ -4,18 +4,6 @@ import httpx
 import runpod
 
 
-async def wait_for_sdapi_ready():
-    while True:
-        try:
-            endpoint = "http://localhost:7861/sdapi/v1/memory"
-            async with httpx.AsyncClient() as client:
-                response = await client.get(endpoint)
-                response.raise_for_status()
-                return
-        except Exception:
-            await asyncio.sleep(0)
-
-
 async def handler(job):
     job_input = job["input"]
     async with httpx.AsyncClient() as client:
@@ -34,7 +22,6 @@ async def handler(job):
             yield data[i:i + chunk_size]
 
 
-asyncio.run(wait_for_sdapi_ready())
 runpod.serverless.start(
     {
         "handler": handler,

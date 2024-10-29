@@ -6,7 +6,7 @@ git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
 
 WORKDIR /stable-diffusion-webui
 RUN pip3 install httpx runpod; \
-./webui.sh -f --skip-version-check --skip-python-version-check --skip-torch-cuda-test --no-download-sd-model --no-hashing --xformers --exit; \
+./webui.sh -f --no-download-sd-model --no-hashing --skip-version-check --skip-python-version-check --skip-torch-cuda-test --xformers --exit; \
 wget --content-disposition -P models/VAE-approx/ "https://github.com/AUTOMATIC1111/stable-diffusion-webui/releases/download/v1.0.0-pre/model.pt"; \
 wget --content-disposition -P models/VAE-approx/ "https://github.com/AUTOMATIC1111/stable-diffusion-webui/releases/download/v1.0.0-pre/vaeapprox-sd3.pt"; \
 wget --content-disposition -P models/VAE-approx/ "https://github.com/AUTOMATIC1111/stable-diffusion-webui/releases/download/v1.0.0-pre/vaeapprox-sdxl.pt"; \

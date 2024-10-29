@@ -54,12 +54,6 @@ def fetch_result(i, p, run_requests, timer):
     timer.title = f"fetch{i}"
     timer.status = f"{run_request.job_id}"
 
-    delay_time, execution_time = get_job_times(job_status)
-    job_times_info = (
-        f"delayTime: {delay_time / 1000:.2f}s, "
-        f"executionTime: {execution_time / 1000:.2f}s"
-    )
-    print(f"worker{i}: done. {job_times_info}")
 
     output = "".join(job_status.get("output"))
     data = json.loads(output)
@@ -88,6 +82,16 @@ def fetch_result(i, p, run_requests, timer):
                 f"saved: image{j} @ worker{i} "
                 f"<{run_request.job_id}>"
             )
+
+    n = len(images)
+    delay_time, execution_time = get_job_times(job_status)
+    job_times_info = (
+        f"delayTime: "
+        f"{delay_time / 1000:.2f}s, "
+        f"executionTime: "
+        f"{execution_time / 1000:.2f}s"
+    )
+    print(f"worker{i}: done. {job_times_info}")
 
     infotexts = [
         infotext + ", " + job_times_info

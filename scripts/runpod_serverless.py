@@ -50,7 +50,7 @@ class Script(scripts.Script):
         )
         WORKERS = gr.Slider(
             minimum=1,
-            maximum=5,
+            maximum=10,
             step=1,
             label="WORKERS",
         )
@@ -147,4 +147,6 @@ class Script(scripts.Script):
             all_images += images
             all_infotexts += infotexts
 
+        now = datetime.now().strftime(r"%y/%m/%d %H:%M:%S")
+        print(f"Runpod serverless finish: {now}")
         return Processed(p, all_images, infotexts=all_infotexts)

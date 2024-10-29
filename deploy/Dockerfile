@@ -1,7 +1,7 @@
 FROM ubuntu:jammy
 
 RUN export DEBIAN_FRONTENF=noninteractive; \
-apt update; apt install -y libgl1-mesa-glx libgtk2.0-0 libtcmalloc-minimal4 build-essential python3-pip python3-venv bc wget curl git; \
+apt update; apt install -y libgl1-mesa-glx libgtk2.0-0 libtcmalloc-minimal4 build-essential python3-pip python3-venv bc iproute2 wget curl git; \
 git clone https://github.com/AUTOMATIC1111/stable-diffusion-webui.git
 
 WORKDIR /stable-diffusion-webui
